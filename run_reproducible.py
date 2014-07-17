@@ -8,40 +8,38 @@ from sys import argv as args
 from sys import exit
 import sys
 from os import path
-from itertools import islice
+from itertools import islice, imap
 
+import imp # to dynamically load the script passed
+
+# Helper functions
 errprint = lambda *args, **kwargs: print(*args, file=sys.stderr, **kwargs)
-equals_any = lambda v, l: any(map(lambda x: v == x, l))
+equals_any = lambda v, l: any(imap(lambda x: v == x, l))
 
 # A list of the names of functions in the inner script that we consider runnable to produce the experiment
 runnable_names = ["run_all"] # TODO move this to a reproducible_config.py that we load here
-
-try:
-    import reproducible # just a file of files we need to watch
-except ImportError:
-    errprint("fatal: cannot load reproducible.py.")
-    errprint("Please ensure that this file is present, and defines variable ``files'' listing the files to watch.")
-    exit(1)
-
-try:
-    if not reproducible.files:
-        errprint("fatal: no files are listed as reproducible in reproducible.py.")
-        errprint("A variable named ``files'' should consist of list of files to watch.")
-        exit(1)
-except NameError:
-    errprint("fatal: the variable ``files'' is not defined in reproducible.py.")
-    errprint("Please ensure that such a variable is defined and lists the files to watch.")
-    exit(1)
-
-def english_list(words, connective="and"):
-    return ", ".join(words[:-1]) + ", " + connective + " " + words[-1]
+reproducible_path = ".reproducible"
 
 if __name__ == "__main__":
+    files = []
+
+    if not path.exists(reproducible_path):
+        errprint("fatal: cannot load reproducible.py.")
+        errprint("Please ensure that this file is present, and defines variable ``files'' listing the files to watch.")
+        exit(1)
+    else:
+        with open(reproducible_path) as f:
+            files = [line[:-1] for line in f]
+
+        if not files:
+            errprint("fatal: no files are listed as reproducible in reproducible.py.")
+            errprint("A variable named ``files'' should consist of list of files to watch.")
+
     force = False
     script_name = None
     script_args = []
 
-    try:
+    try: # parse the command line arguments
         for (i, arg) in enumerate(islice(args, 1, None)):
             any_of = lambda l: equals_any(arg, l)
             if not script_name: # if the script is undefined, then args are to this script.
@@ -55,8 +53,8 @@ if __name__ == "__main__":
         errprint("fatal: invalid command line.")
         exit(1)
 
-    if not all(map(path.exists, reproducible.files)): # we check that the files exist.
-        errprint("fatal: some of the required files do not exist.", file=sys.stderr)
+    if not all(map(path.exists, files)): # we check that the files exist.
+        errprint("fatal: some of the required files do not exist.")
         exit(1)
 
     if not script_name:
@@ -64,10 +62,11 @@ if __name__ == "__main__":
         exit(1)
 
     try: # we try to load the script given on the command line
-        script = __import__(script_name)
-    except ImportError:
+        script = imp.load_source("script", script_name)
+    except ImportError as e:
         map(errprint, ["fatal: unable to load the specified script.",
-                       "(Did you remember to remove the .py extension ?)"])
+                       "(Did you remember to remove the .py extension ?)",
+                       e])
         exit(1)
 
     runnables = [x for x in dir(script) if x in runnable_names] # we get the functions
@@ -78,11 +77,11 @@ if __name__ == "__main__":
         exit(1)
 
     # get the status of the files we're watching.
-    git_status = subprocess.Popen(["git", "status", "--short"] + reproducible.files, stdout=subprocess.PIPE)
+    git_status = subprocess.Popen(["git", "status", "--short"] + files, stdout=subprocess.PIPE)
     status_out, status_err = git_status.communicate()
     git_status.wait()
     if git_status.returncode != 0: # (maybe the script is not running in the git repo?)
-        print("fatal: checking project git repository status failed.", file=sys.stderr)
+        errprint("fatal: checking project git repository status failed.")
         exit(1)
 
     clean = len(status_out) == 0 # if there's no output, then we're all good! The files are clean.
@@ -107,7 +106,7 @@ if __name__ == "__main__":
     if git_rev_parse.returncode != 0: # maybe there was a race condition (e.g. the user deleting everything while the experiment was running.)
         failure_message = ["fatal: unable to get SHA for this commit.", "Refusing to run the experiment unless forced with the -f switch."]
         map(errprint, failure_message)
-        errprint("This message will be written to the experiment folder.", file=sys.stderr)
+        errprint("This message will be written to the experiment folder.")
         try:
             with open(edir + "/sha-error.txt", 'w') as f:
                 print(failure_message[0], file=f)
