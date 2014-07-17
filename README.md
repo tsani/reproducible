@@ -33,6 +33,29 @@ dirty and by saving to the output folder the hash of the commit that generated
 that output, it becomes trivial to recover the exact commit that generated that
 output.
 
+How it works
+------------
+
+Reproducible effectively creates a one-to-one mapping between commit hashes and
+experimental output data. This guarantees that it is straightforward to roll
+back to the exact working directory that generated a given set of output.
+
+The user maintains a list of files under _reproducibility control_, and rather
+than run the data processing scripts directly, we instead wrap the invokation
+of the script in a call to <code>run_reproducible.py</code>. This wrapper
+script will verify that the files listed under reproducibility control
+have no uncommitted changes. If there are uncommitted changes, then the user is
+simply invited to commit the work that has been done. It is possible to bypass
+this check, but doing so severely limits reproducibility, as explained below. 
+
+The wrapper script will then record in a file named <code>rev.txt</code> placed
+in the experimental output folder the hash of the commit that generated this
+experiment. This means that reverting to the code that generated this
+experiment is as simple as opening <code>rev.txt</code> and running <code>git
+checkout</code> on the hash contained there. From there it is possible to
+create a new branch with changes effectively based on a past instance of the
+experiment.
+
 Setup
 -----
 
@@ -41,7 +64,7 @@ symlink to <code>run_reproducible.py</code> somewhere in your path.
 
 Since you will probably be writing scripts that invoke
 <code>run_reproducible.py</code>, another course of action is to add
-<code>Reproducible</code> as a submodule.
+Reproducible as a submodule.
 
     cd /path/to/your/project
     git submodule add https://github.com/djeik/reproducible
@@ -59,11 +82,11 @@ where each string is a path to a file.
 <code>run_reproducible.py</code> will fail if any of the following conditions
 are not met:
 
-    * Each of the files given in the <code>files</code> variable must exit.
-    * The directory in which <code>run_reproducible.py</code> is run must be
-      (part of) a git repository.
-    * <code>reproducible.py</code> must exist and define a variable named
-      <code>files</code>.
+* Each of the files given in the <code>files</code> variable must exit.
+* The directory in which <code>run_reproducible.py</code> is run must be
+  (part of) a git repository.
+* <code>reproducible.py</code> must exist and define a variable named
+  <code>files</code>.
 
 One the above has been carried out, you're ready to use
 <code>Reproducible</code>!
