@@ -1,7 +1,7 @@
 Reproducible
 ============
 
-Reproducible is a script to assist scientists or others working on very
+Reproducible is a script to assist scientists and others working on very
 data-oriented projects. 
 
 Motivation
@@ -59,37 +59,30 @@ experiment.
 Setup
 -----
 
-Setup is very bad for now. Simply clone the repository somewhere, and add a
-symlink to <code>run_reproducible.py</code> somewhere in your path. 
-
-Since you will probably be writing scripts that invoke
-<code>run_reproducible.py</code>, another course of action is to add
-Reproducible as a submodule.
-
-    cd /path/to/your/project
-    git submodule add https://github.com/djeik/reproducible
-
-This will add a subdirectory called <code>reproducible</code> from which you
-can symlink <code>run_reproducible.py</code> into your main project directory. 
+Setup is very bad for now. Simply clone the repository somewhere, and copy
+<code>run_reproducible.py</code> into your project folder. Due to the way
+Python handles imports, this is necessary for relative imports to succeed. If
+the inner script that is being wrapped does not perform any relative imports,
+then there shouldn't be a problem, and the location of the wrapper shouldn't
+matter much. 
 
 The next step is to create a list of files to watch. Simply create a file named
-<code>reproducible.py</code> and insert code in the following format
+<code>.reproducible</code> and list the files to watch, one path per line.
 
-    files = ["dm_run.py", "dm_optimizer.py", "sa_tester.sh", "etc"]
-
-where each string is a path to a file. 
+    dm_run.py
+    dm_optimizer.py
+    sa_tester.sh
+    etc.
 
 <code>run_reproducible.py</code> will fail if any of the following conditions
 are not met:
 
-* Each of the files given in the <code>files</code> variable must exit.
 * The directory in which <code>run_reproducible.py</code> is run must be
   (part of) a git repository.
-* <code>reproducible.py</code> must exist and define a variable named
-  <code>files</code>.
+* <code>.reproducible</code> must exist and all the files listed in it must
+  exist.
 
-One the above has been carried out, you're ready to use
-<code>Reproducible</code>!
+Once the above has been carried out, you're ready to use Reproducible!
 
 Usage
 -----
@@ -135,7 +128,7 @@ example:
 where each of <code>test1</code> and <code>test2</code> generate their own
 separate experiment output folders.
 
-Although such a setup is practiceable, it is advisable to simply extend the
+Although such a setup is practicable, it is advisable to simply extend the
 <code>run_all</code> function to generate a single folder per experiment, and
 to run within that folder several sub-experiments, rather than to create
 several separate experiments and invoke <code>run_reproducible.py</code> for
