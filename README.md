@@ -120,7 +120,8 @@ of the experiment, although this is not enforced.) The inner script's standard
 output is captured, and its last line of standard output is taken to be the
 directory where the reproducibility information should be stored. (This only
 applies when not using the -r switch.) If this directory does not exist, then
-<code>run_reproducible.py</code> will fail with exit code 1.
+<code>run_reproducible.py</code> will fail with exit code 1. The standard
+output of the inner script is regardless forwarded to the terminal.
 
 The <code>-f</code> switch will make <code>run_reproducible.py</code> skip the
 repository cleanliness check. This is not advisable, as it means that whatever
@@ -154,20 +155,62 @@ convenience functions in <code>run_reproducible.py</code> so that individual
 portions of the pipeline may be tracked separately for reproducibility control.
 
 A basic pipeline script called <code>run_reproducible_pipeline.py</code> is
-provided for simple pipelines. A simple pipeline is one in which there is a
-base step (phase zero), and each step (phase n+1) depends only on the results
-of the step immediately prior (phase n). Because of this dependency, each step
-must not only keep track of what commit generated it, but it must also know
-which commit generated the output that was fed into it. By following the
-resulting chain of commits, it is possible to effectively get back the code
-that produced any of the intermediate results. 
+provided for simple pipelines. A simple pipeline is one in which the output of
+step n&gt;1 can depend only on the output(s) of step(s) m&lt;n and on
+(unchanging) external files.
+
+Naturally, as pipelines are more complex, the usage of
+<code>run_reproducible_pipeline.py</code> is as well. Here is the
+summary of its command line interface, and below, there is a concrete example
+using it and its various switches.
+
+    run_reproducible_pipeline.py [(-o|--output) <output directory>]
+        [(-R|--results) <results directory>]  
+        [-r <reproducible file>] [-p <.pipeline file>]
+        ([--from <step>] [--to <step>] | [--only <step>])
+        [--with <run>] [--ignore-missing-output]
+        [(--continue | --everything)] [--force]
+
+* <code>-o | --output</code>: specify the exact folder name where this run's
+  output should be stored. 
+  Default: generate the folder name with the current date and time.
+* <code>-R | --results</code>: specify the path (relative to the current
+  working directory) where the results directory is located.
+  Default: <code>results</code> 
+  If the directory does not exist, Reproducible will fail with an error
+  message.
+* <code>-r <reproducible file></code>: specify the file that lists the files
+  under reproducibility control (the commit-enforcing policy).
+  Default: <code>.reproducible</code>
+* <code>-p <pipeline file></code>: specify the file that lists the steps in the
+  pipeline and the names of the steps
+  Default: <code>.pipeline</code>
+* <code>--from N</code> <code>--to N</code> <code>--only N</code>: specify a
+  range of steps to run.
+  Default: all the steps listed in the pipeline file.
+* <code>--with <run></code>: specify the run from which to draw the output of
+  previous steps. This switch has no effect if the entire pipeline is being
+  run.
+* <code>--ignore-missing-output</code>: when running from a step n>1, do not
+  fail if output for steps m&lt;n does not exist.
+* <code>--continue</code>: enforce that the next run should be a continuation
+  of the previous one (or the one specified with <code>--with</code>). If
+  proceeding as a continuation is not possible (e.g. for each step in the
+  specified range, its output already exists in the previous run), fail with an
+  error message.
+* <code>--everything</code>: ignore previous runs, and run the entire pipeline
+  from the start.
+* <code>--force</code>: skip repository sanity check. This can result in
+  irreproducible results.
+
 
 ### An example
 
 Let's suppose we have the following directory structure:
 
     project/
-    \   bin/
+    \   .gitignore  
+        bin/
         \   run_all.sh
             step1.sh
             step2.sh
@@ -185,15 +228,15 @@ Executing <code>run_all.sh</code> will create the following subdirectory of
         \   output
         step3/
         \   output
-        output -> step3/output   (a symlink)
 
 This would be the _normal_ way of doing things, with no reproducibility
 control.
 
 To use <code>run_reproducible_pipeline.py</code> we first need to write a
-<code>.reproducible</code> file as described earlier. We also need to write a
-description of our pipeline, which explains how each step should be performed.
-We write this description in a file named <code>.pipeline</code>:
+<code>.reproducible</code> file as described earlier, in order to enable to
+commit-enforcing policy.  We also need to write a description of our pipeline,
+which explains how each step should be performed.  We write this description in
+a file named <code>.pipeline</code>:
 
     step1.sh step1
     step2.sh step2
@@ -201,11 +244,16 @@ We write this description in a file named <code>.pipeline</code>:
 
 <code>run_reproducible_pipeline.py</code> will effectively run
 <code>run_reproducible.py</code> on what's in the first column of each line
-each entry, but will guarantee the propagation of <code>prev</code> symlinks
-that refer to the output directory of the previous step.
+each entry, but will enforce a certain amount of organization in the
+<code>results</code> directory, and allow for a straightforward way of
+recovering the hash of the commit that generated the output of any step in the
+pipeline.
 
-The second column is reserved for the name of the directory in the experiment
-folder that the script will write its output file to.
+The second column is reserved for the name of the step. This name is used as
+the name of the directory in which the step's script is to write its output.
+It is necessary for Reproducible to know the directory names for it to perform
+previous step resolution as described below. These names are not allowed to
+change, and they must be unique to a given project.
 
 Each of the component scripts must accept as its first command-line argument
 the folder where it should save its output to. By default,
@@ -216,46 +264,51 @@ if I run a reproducible pipeline on 17 July 2014 at 3:32 PM, the first argument
 given to step1.sh will be <code>2014:07:17 15:32:47/step1</code>, and that
 is where <code>step1.sh</code> should write its output.
 
-It is possible to provide an explicit folder to create with the <code>-o |
---output</code> switch:
+It is possible to provide an explicit folder to create with the <code>-o</code> 
+(long form: <code>--output</code>) switch:
 
     run_reproducible_pipeline.py -o crazy_test
 
-The command-line arguments of <code>run_reproducible_pipline.py</code> are
+The command-line arguments of <code>run_reproducible_pipeline.py</code> are
 saved to <code>invocation.txt</code> in the output directory, so it is possible
 to recover this information (in case the folder gets renamed later, for
 instance.)
 
-<code>run_reproducible_pipeline.py</code> will create a symlink named
-<code>prev</code> to the previous step's output folder in the current
-step's output folder _prior to_ invoking the current step's script. Thus,
-the current step can access the previous step's output simply by trying to
-open the file <code>prev/output</code>. Since the scripts have access to
-this information, it becomes easy to construct the path to the output of
-the previous step: <code>"project/results/$1/step1/output</code>, for
-example, would be used in <code>step2.sh</code> to set the input of the
-underlying portion of the pipeline. 
+The preferred way for a script to access the output of a previous step is to
+simply use the same of that step, and a relative path:
+<code>../step1/output</code> could be used from within step 2 to
+access the output of step 1, which in turn should be step 2's input.
+Furthermore, this means that it is straightforward to make a step that requires
+the output of two or more previous steps, simply by referring to those steps by
+name.
+
+(Planned feature: simultaneous steps. Placing a <code>&</code> at the end of a
+line in <code>.pipeline</code> would indicate to Reproducible that the
+subsequent step may be performed at the same time as the current step. This
+allows for a nice speedup in some cases, and allows for rudimentary branching 
+pipelines.)
 
 The component scripts in the pipeline do not have the requirement to have as
 their last line of standard output the path to where the <code>rev.txt</code>
 file should be saved. Reproducible already knows where it should go: it created
 the experiment directory. 
 
-(That's the main difference between non-pipelined execution: the callee is
+(That's the main difference with non-pipelined execution: the callee is
 expected to create the experiment directory and then inform Reproducible,
-whereas in pipelined execution, the Reproducible informs the callee of where it
+whereas in pipelined execution, Reproducible informs the callee of where it
 should store its output.)
 
 With <code>run_reproducible_pipeline.py</code>, our directory structure now
 looks like this:
 
     project/
-    \   bin/
+    \   .reproducible       (lists the scripts in bin/)
+        .pipeline           (lists the scripts and output folder names)
+        .gitignore
+        bin/
             step1.sh
             step2.sh
             step3.sh
-            .reproducible   (lists all the files in this directory)
-            .pipeline       (lists the shell scripts and output folders)
         data/
         \   input_file.dat
         results/
@@ -264,16 +317,13 @@ looks like this:
                 \   output
                 step2/
                 \   output
-                    prev -> ../step1
                 step3/
                 \   output
-                    prev -> ../step2
                 rev.txt
                 invocation.txt
 
-These <code>prev</code> symlinks essentially make it possible to walk backwards
-indefinitely, until we reach step 1, for example by writing
-<code>results/step3/prev/prev/output</code>.
+N.B. In a real project, the output filenames will generally be more descriptive
+than "output", i.e. we do so here only for the sake of example.
 
 Let's suppose that the output of step1 is perfect: no more tweaking is required
 for it. Step 2, however, still needs work, as we determine by looking at the
@@ -291,23 +341,110 @@ to pick the step 1 that is the most recent (by file creation time stamp), since
 the most recent version of the output is most likely the best one, but it's
 possible to set a specific one by providing a path:
 
-    run_reproducible_pipeline.py --from 2 --with "results/2014:07:18 16:22:32"
+    run_reproducible_pipeline.py --from 2 --with "../2014:07:18 16:22:32"
 
 A path specified with <code>--with</code> is assumed to be relative to the
-working directory (which we assume here to be <code>project/</code>), whereas
-paths listed in <code>.pipeline</code> are assumed relative to the new
-directory that will be created by <code>run_reproducible_pipeline.py</code>
-(the folder named with the current date and time).
+directory that will be created (by default with the current date and time).
+This is indeed somewhat confusing at first, but we can see how it makes sense
+from the filesystem diagram below.
 
-The result of running the above line would be the creation of 
+In this case, the result of running either of the above two commands would
+produce the same result:
 
-SOME NOTES FOR ME:
-    Rather than make "prev" symlinks, we would instead make symlinks to all the
-    steps from previous runs. That way each time-stamped run folder would have
-    *all* the steps. This requires some symlink-chasing on the part of the
-    user, but it guarantees reproducibility.
+    2014:07:18 19:36:29/
+    \   step1 -> ../2014:07:18 16:22:32/step1
+        step2/
+        \   output
+        step3/
+        \   output
+        rev.txt
+        invocation.txt
 
-Using <code>run_reproducible_pipeline.py</code> sacrifices some of the
-flexibility of running <code>run_reproducible.py</code>, but saves us some of
-the headaches of having to work out our own system for each pipeline, provided
-the pipeline we're using is _linear_.
+All steps prior to the one specified by the <code>--from</code> switch will be
+generated as symlinks to the relevant run (either the most recent one or the
+one specified with the <code>--with</code> switch). It it thus possible to
+follow these symlinks to determine exactly which commit of the relevant driver
+script(s) generated the output of the relevant step(s), by examining the
+<code>rev.txt</code>.
+
+As a counterpart to <code>--from</code>, we also provide <code>--to</code>.
+Reproducible will run the pipeline up to and including the step identified by
+the number given as an argument to the switch. The effect of <code>--from N
+--to N</code> is therefore to run only step N. There is a shortcut switch to do
+just that, namely <code>--only</code>.
+
+Remarks:
+
+ * if <code>--to</code> or <code>--only</code> are used such that the
+   pipeline completes before running all its steps as listed in
+   <code>.pipeline</code>, then symlinks to future steps will not be
+   generated. Only symlinks to _previous_ steps are generated.
+ * if <code>--from</code> and/or <code>--to</code> is used alongside
+   <code>--only</code>, then Reproducible will fail with an error message.
+   Reproducible will also fail if the indices given are out of range, or if the
+   value of <code>--to</code> is less than the value of <code>--from</code>
+
+### Building a pipeline, piece by piece
+
+<code>run_reproducible_pipeline.py</code> provides a convenience switch for
+building up a pipeline. Suppose we start out by just writing
+<code>step1.sh</code>, and we see the output is looking good. Now we write
+<code>step2.sh</code>, but we can't simply run
+<code>run_reproducible_pipeline.py</code>, since that would run step 1 again!
+
+Or would it?
+
+In fact, the default behaviour is to check the entries in
+<code>.pipeline</code> and compare with the contents of the most recent run's
+directory: if Reproducible determines that more steps have been added to
+<code>.pipeline</code>, then it will infer a <code>--from</code> switch with
+the appropriate value. In our example just above, the inferred value would be
+two. If the number of steps is the same, then the entire pipeline will be run
+again.
+
+Note that the use of the <code>--to</code> switch can influence the effect of
+rebuilding/continuing inference. Suppose there are four steps in our pipeline
+(we already have at least one run with the output of those four steps) and we
+add three more steps, but use <code>--to 4</code>. The effect will be to run
+all the four first steps over again, since it is the given _range_ of steps
+that is checked for in the last run's output folder. Reproducible will see that
+the specified steps exist, and therefore, the inferred behaviour will be to
+rerun the pipeline entirely for those steps.
+
+On the other hand, there is a case in which inference is not performed. Suppose
+we have a pipeline with four steps, and we add three. There is at least one run
+with the output of the first four, and we run with <code>--from 6</code>.
+Reproducible will see that there is no output for step 5, and rather than infer
+that it should run step five, it will fail with an error message. To
+disambiguate, the user is required to either use <code>--from N</code> where
+the output of step N-1 exists, or to use the
+<code>--ignore-missing-output</code> switch. It is not advisable to use this
+switch, however, since the resulting output directory will look rather strange
+with missing steps in it.
+
+### Explicit is better than implicit
+
+Of course, relying on a program's ability to infer what the user wants can be
+dangerous. As such, the following switches are provided to explicitly perform
+the actions described in the previous section:
+
+* <code>--everything</code>: run all the specified steps again.
+* <code>--continue</code>: pick up where the pipeline left off, running the new
+  steps based on the output of the previous steps.
+
+Again, these command-line arguments will be saved to
+<code>invocation.txt</code> in the run's folder.
+
+Note that if <code>--continue</code> is used, but no new steps have been added,
+Reproducible will simply fail with an error message.
+
+Bugs and caveats
+----------------
+
+There are probably many more than those listed here. If you discover any, don't
+hesitate to open an issue here or to submit a pull request.
+
+ * Misbehaved buffers: the wrapper scripts effectively open a pipe to the inner
+   scripts to collect their stdout. For the echoing of the inner script's
+   stdout to stream correctly to the terminal, it might be necessary to disable
+   output buffering in the inner script.
