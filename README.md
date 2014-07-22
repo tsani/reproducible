@@ -169,7 +169,7 @@ using it and its various switches.
         [-r <reproducible file>] [-p <.pipeline file>]
         ([--from <step>] [--to <step>] | [--only <step>])
         [--with <run>] [--ignore-missing-output]
-        [(--continue | --everything)] [--force]
+        [(--continue | --everything)] [--force] [--final]
 
 * <code>-o | --output</code>: specify the exact folder name where this run's
   output should be stored. 
@@ -202,6 +202,10 @@ using it and its various switches.
   from the start.
 * <code>--force</code>: skip repository sanity check. This can result in
   irreproducible results.
+* <code>--final</code>: save a hidden file named ".final" to the run directory.
+  This will prevent Reproducible from considering this run as a previous run in 
+  its automatic previous-run determination. Runs created with 
+  <code>--force</code> are automatically made final.
 
 
 ### An example
@@ -238,16 +242,23 @@ commit-enforcing policy.  We also need to write a description of our pipeline,
 which explains how each step should be performed.  We write this description in
 a file named <code>.pipeline</code>:
 
-    step1.sh step1
-    step2.sh step2
-    step3.sh step3
+    bin/step1.sh step1
+    bin/step2.sh step2
+    bin/step3.sh step3
 
 <code>run_reproducible_pipeline.py</code> will effectively run
 <code>run_reproducible.py</code> on what's in the first column of each line
 each entry, but will enforce a certain amount of organization in the
 <code>results</code> directory, and allow for a straightforward way of
 recovering the hash of the commit that generated the output of any step in the
-pipeline.
+pipeline. 
+
+Note: each of the paths in our <code>.pipeline</code> file above is prefixed
+with <code>bin/</code> since we have chosen to place our pipeline 
+specification file in the project's root folder. If we had placed it in the 
+bin folder, this would not have been necessary. In other words, _the paths
+in pipeline specification file are relative to the pipeline specification
+file_.
 
 The second column is reserved for the name of the step. This name is used as
 the name of the directory in which the step's script is to write its output.
@@ -341,12 +352,10 @@ to pick the step 1 that is the most recent (by file creation time stamp), since
 the most recent version of the output is most likely the best one, but it's
 possible to set a specific one by providing a path:
 
-    run_reproducible_pipeline.py --from 2 --with "../2014:07:18 16:22:32"
+    run_reproducible_pipeline.py --from 2 --with "2014:07:18 16:22:32"
 
 A path specified with <code>--with</code> is assumed to be relative to the
-directory that will be created (by default with the current date and time).
-This is indeed somewhat confusing at first, but we can see how it makes sense
-from the filesystem diagram below.
+results directory.
 
 In this case, the result of running either of the above two commands would
 produce the same result:
@@ -400,7 +409,9 @@ directory: if Reproducible determines that more steps have been added to
 <code>.pipeline</code>, then it will infer a <code>--from</code> switch with
 the appropriate value. In our example just above, the inferred value would be
 two. If the number of steps is the same, then the entire pipeline will be run
-again.
+again. Also, the entire pipeline will be run again if the number of steps has 
+decreased, since there is currently no way for Reproducible to 
+straightforwardly determine how to proceed.
 
 Note that the use of the <code>--to</code> switch can influence the effect of
 rebuilding/continuing inference. Suppose there are four steps in our pipeline
