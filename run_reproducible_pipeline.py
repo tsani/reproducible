@@ -171,11 +171,11 @@ class PipelineRunner:
 
         if self.range_end is None:
             self.range_end = len(self.pipeline_steps)
-        elif self.range_end > steps_num:
+        elif self.range_end > self.steps_num:
             raise PipelineRunnerInitializationError(
                     "inconsistency: cannot run to step #%i as there are only %i steps in total."
-                    % (self.range_end, steps_num))
-        elif self.range_end < steps_num: # if the pipeline is to end prematurely
+                    % (self.range_end, self.steps_num))
+        elif self.range_end < self.steps_num: # if the pipeline is to end prematurely
             self.steps_num = self.range_end # set the number of steps to that value
             # of course, the number of steps may be even less if the pipeline is to begin
             # later than the start.
