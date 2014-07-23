@@ -16,6 +16,8 @@ from os import path
 
 from itertools import islice, imap, ifilter
 
+from shutil import rmtree
+
 compose = lambda f, g: lambda *args, **kwargs: f(g(*args, **kwargs))
 mkfprint = lambda f: lambda *args, **kwargs: print(*args, file=f, **kwargs)
 errprint = mkfprint(sys.stderr)
@@ -66,13 +68,19 @@ class PipelineStep:
                     % self.name)
         # output_dir is the path (relative to CWD !) where this step should store its output.
         # it is passed as the first argument to this step's inner script.
-        inner_script_proc = sp.Popen([self.script_path, self.output_dir], stdout=PIPE)
-        while True:
-            line = inner_script_proc.stdout.readline()
-            if not line:
-                break
-            sys.stdout.write(line) # echo everything the internal script outputs.
-        inner_script_proc.wait()
+        try:
+            inner_script_proc = sp.Popen([self.script_path, self.output_dir], stdout=PIPE)
+            while True:
+                line = inner_script_proc.stdout.readline()
+                if not line:
+                    break
+                sys.stdout.write(line) # echo everything the internal script outputs.
+            inner_script_proc.wait()
+        except:
+            self.exc_info = sys.exc_info()
+            rmtree(self.output_dir)
+            raise
+
 
 class PipelineRunner:
     def __init__(self, force=False, final=False, output_dir=None, results_dir="results",
