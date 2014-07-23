@@ -66,9 +66,9 @@ class PipelineStep:
                     % self.name)
         # output_dir is the path (relative to CWD !) where this step should store its output.
         # it is passed as the first argument to this step's inner script.
-        inner_script_proc = sp.Popen([self.script_path], stdout=PIPE)
+        inner_script_proc = sp.Popen([self.script_path, self.output_dir], stdout=PIPE)
         while True:
-            line = script_proc.stdout.readline()
+            line = inner_script_proc.stdout.readline()
             if not line:
                 break
             sys.stdout.write(line) # echo everything the internal script outputs.
@@ -146,7 +146,7 @@ class PipelineRunner:
 
         for previous_step_name in previous_step_names:
             os.symlink(path.join("..", self.previous_run, previous_step_name),
-                       path.join(self.results_dir, self.output_dir))
+                       path.join(self.results_dir, self.output_dir, previous_step_name))
 
     def determine_range(self):
         """ Perform black magic (read: lots of ifs) to infer the correct behaviour when given
@@ -162,7 +162,7 @@ class PipelineRunner:
         self.steps_num = len(self.pipeline_steps) # number of steps in this run
 
         if self.range_end is None:
-            slef.range_end = len(self.pipeline_step)
+            self.range_end = len(self.pipeline_steps)
         elif self.range_end > steps_num:
             raise PipelineRunnerInitializationError(
                     "inconsistency: cannot run to step #%i as there are only %i steps in total."
@@ -177,7 +177,7 @@ class PipelineRunner:
         self.had_previous_run = not not self.previous_run # 'had' as in prior to determination
         # determine_previous_run returns true if a previous run was found
         # it also assigns what it found to self.previous_run
-        has_previous_run = True if self.previous_run else determine_previous_run()
+        has_previous_run = True if self.previous_run else self.determine_previous_run()
         if has_previous_run: # if there's a previous run
             # count the number of steps in that run
             prev_run_steps_num = self.count_steps_in_run(self.previous_run)
@@ -186,7 +186,7 @@ class PipelineRunner:
             if self.inference_behaviour == "continue": # force continuing
                 if has_previous_run: # if there is a previous run
                     if self.steps_num > prev_run_steps_num: # there are more steps now
-                        self.range_start = self.steps_num + 1 # continue from end of previous run
+                        self.range_start = self.steps_num # continue from end of previous run
                     elif self.steps_num < prev_run_steps_num: # there are less steps now
                         raise PipelineRunnerInitializationError(
                                 "fatal: number of steps decreased since last run.")
@@ -214,7 +214,7 @@ class PipelineRunner:
             else: # true inference
                 if has_previous_run: # if there is a previous run
                     if self.steps_num > prev_run_steps_num: # there are more steps now
-                        self.range_start = self.steps_num + 1 # continue from end of previous run
+                        self.range_start = self.steps_num # continue from end of previous run
                     elif self.steps_num < prev_run_steps_num: # there are less steps now
                         raise PipelineRunnerInitializationError(
                                 "fatal: number of steps decreased since last run.")
@@ -271,8 +271,10 @@ class PipelineRunner:
         """ Run the reproducible pipeline. If this run is a continuation (i.e. not starting at the
             beginning) then this this """
 
+        os.makedirs(path.join(self.results_dir, self.output_dir))
+
         if self.range_start > 0:
-            generate_previous_step_links()
+            self.generate_previous_step_links()
 
         for step in islice(self.pipeline_steps, self.range_start, self.range_end + 1):
             step.make_output_directory(self.output_dir)
@@ -309,8 +311,9 @@ class PipelineRunner:
             directory whose names are step names as listed in self.pipeline_file.
             """
         stepnames = map(lambda step: step.name, self.pipeline_steps)
+        odir = path.join(self.results_dir, run_name)
         return len(filter(lambda p: path.isdir(p) and (path.basename(p) in stepnames),
-                          map(lambda p: os.listdir(path.join(self.results_dir, self.output_dir)))))
+                          map(lambda p: path.join(odir, p), os.listdir(odir))))
 
     def determine_previous_run(self):
         """ Figure out what the previous run is by taking the most recent non-final and reproducible
@@ -319,13 +322,13 @@ class PipelineRunner:
             previous run. """
         # get the list of runs as an iterable, ignoring any files in the results directory that are not
         # folders, and ignoring any runs that are final.
-        runs = ifilter(lambda p: path.isdir(p) and not is_final(p) and is_reproducible(p),
+        runs = filter(lambda p: path.isdir(p) and not self.is_final(p) and self.is_reproducible(p),
                 imap(lambda p: path.join(self.results_dir, p), os.listdir(self.results_dir)))
-        if not runs:
+        if len(runs) == 0:
             return False
         # runs now contains a list of paths to run directories. We need to sort by last modification time
         sorted_runs = sorted(runs, key=path.getmtime) # the last entry is the most recent
-        self.previous_run = path.basename(sorted_runs) # return the basename, since that is the run name.
+        self.previous_run = path.basename(sorted_runs[-1]) # return the basename, since that is the run name.
         return True
 
     def parse_pipeline_file(self): # :: ... -> IO () ;)
@@ -407,7 +410,8 @@ def run_reproducible_pipeline(*args, **kwargs):
 switches = {"output_dir":("-o", "--output"), "results_dir":("-R", "--results"),
         "reproducible_file":("-r",), "pipeline_file":("-p",), "range_start":("--from",),
         "range_end":("--to",), "singleton_range":("--only",), "previous_run":("--with",),
-        "ignore_missing_output":("--ignore_missing_output",), "final":("--final",)}
+        "ignore_missing_output":("--ignore_missing_output",), "final":("--final",),
+        "force":("--force",)}
 
 if __name__ == "__main__":
     force                   = False
@@ -429,11 +433,14 @@ if __name__ == "__main__":
     while i < len(args):
         arg = args[i]
         def check_arg(name, checkf=saw, add=True):
-            if checkf(name): # check if we've already processed this arg
-                raise CLIError("``%s'' appearing more than once on the command line" % arg)
-            if add:
-                seen_args.add(name)
-            return equals_any(arg)(switches[name])
+            if equals_any(arg)(switches[name]):
+                if checkf(name): # check if we've already processed this arg
+                    raise CLIError("``%s'' appearing more than once on the command line" % arg)
+                if add:
+                    seen_args.add(name)
+                return True
+            else:
+                return False
 
         nextarg = lambda: args[i+1]
         if check_arg("output_dir"):
@@ -476,8 +483,11 @@ if __name__ == "__main__":
             inference_behaviour = "rebuild"
         elif check_arg("final"):
             final = True
+        elif check_arg("force"):
+            force = True
         i += 1
 
+    # TODO bracket this with try-except once all the bugs are ironed out.
     run_reproducible_pipeline(force, final, output_dir, results_dir, reproducible_file,
             pipeline_file, range_start, range_end, previous_run, ignore_missing_output,
             inference_behaviour)
