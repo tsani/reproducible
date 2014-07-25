@@ -42,6 +42,8 @@ class PipelineStepError(Exception):
     pass
 class PipelineStepInitializationError(Exception):
     pass
+class PipelineStepRuntimeError(Exception):
+    pass
 
 class PipelineStep:
     def __init__(self, name, script_path, results_dir):
@@ -76,6 +78,8 @@ class PipelineStep:
                     break
                 sys.stdout.write(line) # echo everything the internal script outputs.
             inner_script_proc.wait()
+            if inner_script_proc.returncode != 0:
+                raise PipelineStepRuntimeError("The inner script failed.")
         except:
             self.exc_info = sys.exc_info()
             rmtree(self.output_dir)
@@ -83,9 +87,11 @@ class PipelineStep:
 
 
 class PipelineRunner:
-    def __init__(self, force=False, final=False, output_dir=None, results_dir="results",
-            reproducible_list_file=".reproducible", pipeline_file=".pipeline", range_start=None,
-            range_end=None, previous_run=None, ignore_missing_output=False, inference_behaviour=None):
+    def __init__(self, force=False, final=False, output_dir=None,
+            results_dir="results", reproducible_list_file=".reproducible",
+            pipeline_file=".pipeline", range_start=None, range_end=None,
+            future=False, previous_run=None, ignore_missing_output=False,
+            inference_behaviour=None):
         self.force                  = force
         self.output_dir             = output_dir
         self.results_dir            = results_dir
@@ -97,6 +103,7 @@ class PipelineRunner:
         self.ignore_missing_output  = ignore_missing_output
         self.inference_behaviour    = inference_behaviour
         self.final                  = final
+        self.future                 = future
 
         if not path.exists(self.results_dir):
             raise PipelineRunnerInitializationError("Results directory does not exist: %s"
@@ -138,6 +145,16 @@ class PipelineRunner:
             raise PipelineRunnerInitializationError("fatal: unable to get the commit hash.")
         self.rev = git_rev_out
 
+    def _resolve_id(self, step_name):
+        for (i, step) in enumerate(self.pipeline_steps):
+            if step_name == step.name:
+                return i
+        raise ValueError("no such step named ``%s''." % step_name)
+
+    def _make_previous_link(self, name):
+        os.symlink(path.join("..", self.previous_run, name),
+                   path.join(self.results_dir, self.output_dir, name))
+
     def generate_previous_step_links(self):
         """ For each step N from the previous run where N < self.range_start, generate a symlink
             to that step's output folder in this run's folder.
@@ -150,11 +167,24 @@ class PipelineRunner:
             raise PipelineRunnerInitializationError("fatal: cannot generate symlinks to previous " +
                     "steps in the previous run if the previous run is not determined.")
 
-        previous_step_names = [step.name for step in islice(self.pipeline_steps, 0, self.range_start)]
+        map(self._make_previous_link,
+            [step.name for step in islice(self.pipeline_steps, 0, self.range_start)])
 
-        for previous_step_name in previous_step_names:
-            os.symlink(path.join("..", self.previous_run, previous_step_name),
-                       path.join(self.results_dir, self.output_dir, previous_step_name))
+        if self.future:
+            if self.range_end + 1 >= len(self.pipeline_steps):
+                raise PipelineRunnerInitializationError("inconsistency: cannot generate symlinks to " +
+                        "future steps if the pipeline is to run until the last step.")
+
+            map(self._make_previous_link,
+                [step.name for step in islice(self.pipeline_steps, self.range_end + 1)])
+
+    def _parse_range(self, value):
+        if isinstance(value, str):
+            try:
+                v = int(value)
+            except ValueError:
+                v = self._resolve_id(value)
+        return v
 
     def determine_range(self):
         """ Perform black magic (read: lots of ifs) to infer the correct behaviour when given
@@ -168,6 +198,9 @@ class PipelineRunner:
             and it will call determine_previous_run, if necessary, setting self.previous_run.
             """
         self.steps_num = len(self.pipeline_steps) # number of steps in this run
+
+        self.range_start = self._parse_range(self.range_start)
+        self.range_end = self._parse_range(self.range_end)
 
         if self.range_end is None:
             self.range_end = len(self.pipeline_steps)
@@ -212,7 +245,7 @@ class PipelineRunner:
                             "inconsistency: pipeline set to continue from previous run, "
                             + "but there are no (valid) previous runs.")
             elif self.inference_behaviour == "rebuild": # force rebuilding
-                if had_previous_run: # if the *user* specified a previous run to use
+                if self.had_previous_run: # if the *user* specified a previous run to use
                     # they are being silly since they also specified rebuilding !
                     raise PipelineRunnerInitializationError(
                             "inconsistency: pipeline set to rebuild, but a previous run "
@@ -419,20 +452,21 @@ switches = {"output_dir":("-o", "--output"), "results_dir":("-R", "--results"),
         "reproducible_file":("-r",), "pipeline_file":("-p",), "range_start":("--from",),
         "range_end":("--to",), "singleton_range":("--only",), "previous_run":("--with",),
         "ignore_missing_output":("--ignore_missing_output",), "final":("--final",),
-        "force":("--force",)}
+        "force":("--force",), "future":("--link-future",)}
 
 if __name__ == "__main__":
-    force                   = False
-    output_dir              = None
     results_dir             = "results"
     reproducible_file       = ".reproducible"
     pipeline_file           = ".pipeline"
+    force                   = False
+    future                  = False
+    ignore_missing_output   = False
+    final                   = False
+    output_dir              = None
     range_start             = None
     range_end               = None
     previous_run            = None
-    ignore_missing_output   = False
     inference_behaviour     = None
-    final                   = False
 
     seen_args = set()
     saw = lambda name: name in seen_args # convenience for easy-reading
@@ -466,16 +500,16 @@ if __name__ == "__main__":
         elif check_arg("range_start"):
             if saw("singleton_range"):
                 raise CLIError("``--only'' can only be used when ``--from'' and ``--to'' are not.")
-            range_start = int(nextarg())
+            range_start = nextarg()
             i += 1
         elif check_arg("range_end"):
             if saw("singleton_range"):
                 raise CLIError("``--only'' can only be used when ``--from'' and ``--to'' are not.")
-            range_end = int(nextarg())
+            range_end = nextarg()
         elif check_arg("singleton_range"):
             if any_do(saw, ["range_start", "range_end"]):
                 raise CLIError("``--only'' can only be used when ``--from'' and ``--to'' are not.")
-            r = int(nextarg())
+            r = nextarg()
             range_start = r
             range_end   = r
             i += 1
@@ -489,13 +523,34 @@ if __name__ == "__main__":
             if inference_behaviour:
                 raise CLIError("Inference behaviour specified multiple times.")
             inference_behaviour = "rebuild"
+        elif check_args("future"):
+            future = True
         elif check_arg("final"):
             final = True
         elif check_arg("force"):
             force = True
+        else:
+            raise CLIError("Unrecognized command-line options ``%s''." % arg)
         i += 1
 
-    # TODO bracket this with try-except once all the bugs are ironed out.
-    run_reproducible_pipeline(force, final, output_dir, results_dir, reproducible_file,
-            pipeline_file, range_start, range_end, previous_run, ignore_missing_output,
-            inference_behaviour)
+    try:
+        runner = run_reproducible_pipeline(force, final, output_dir, results_dir,
+                    reproducible_file, pipeline_file, range_start, range_end,
+                    future, previous_run, ignore_missing_output,
+                    inference_behaviour)
+        with open(path.join(runner.results_dir, runner.output_dir, "invocation.txt")) as f:
+            fprint = mkfprint(f)
+            fprint("args =", args[1:])
+    except PipelineRunnerInitializationError as e:
+        errprint("The pipeline failed to start.")
+        errprint(e)
+    except PipelineRunnerRuntimeError as e:
+        errprint("The execution of the pipeline could not complete successfully.")
+        errprint("Please verify the integrity of this run's output folder.")
+        errprint(e)
+    except PipelineStepInitializationError as e:
+        errprint("A step in the pipeline failed to start.")
+        errprint(e)
+    except PipelineStepRuntimeError as e:
+        errprint("The execution of a step in the pipeline could not complete successfully.")
+        errprint(e)

@@ -369,6 +369,12 @@ produce the same result:
         rev.txt
         invocation.txt
 
+It is also possible to supply the name of the step rather than its number.
+There is a caveat, however: step names cannot consist solely of numbers. If a
+step name is a number, then Reproducible will interpret that as the ordinal of
+the step to run, rather than as its name. In other words, name resolution will
+occur only if parsing to a number fails.
+
 All steps prior to the one specified by the <code>--from</code> switch will be
 generated as symlinks to the relevant run (either the most recent one or the
 one specified with the <code>--with</code> switch). It it thus possible to
@@ -387,7 +393,9 @@ Remarks:
  * if <code>--to</code> or <code>--only</code> are used such that the
    pipeline completes before running all its steps as listed in
    <code>.pipeline</code>, then symlinks to future steps will not be
-   generated. Only symlinks to _previous_ steps are generated.
+   generated. By default, only symlinks to _previous_ steps are generated. To
+   force the generation of symlinks to future steps, use
+   <code>--link-future</code>.
  * if <code>--from</code> and/or <code>--to</code> is used alongside
    <code>--only</code>, then Reproducible will fail with an error message.
    Reproducible will also fail if the indices given are out of range, or if the
