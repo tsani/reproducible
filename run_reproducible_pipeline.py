@@ -179,6 +179,7 @@ class PipelineRunner:
                 [step.name for step in islice(self.pipeline_steps, self.range_end + 1)])
 
     def _parse_range(self, value):
+        v = -1
         if isinstance(value, str):
             try:
                 v = int(value)
@@ -201,6 +202,7 @@ class PipelineRunner:
 
         self.range_start = self._parse_range(self.range_start)
         self.range_end = self._parse_range(self.range_end)
+        assert(isinstance(self.range_start, int) and isinstance(self.range_start, int))
 
         if self.range_end is None:
             self.range_end = len(self.pipeline_steps)
@@ -443,7 +445,6 @@ def run_reproducible_pipeline(*args, **kwargs):
     """ Construct a PipelineRunner, forwarding all arguments and keyword arguments to its constructor,
         and immediately call its ``run'' method, running the pipeline. The PipelineRunner is returned.
         """
-    print(args, kwargs)
     runner = PipelineRunner(*args, **kwargs)
     runner.run()
     return runner
