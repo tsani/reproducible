@@ -167,10 +167,6 @@ creating easily reproducible data with minimal effort. For larger projects, in
 which a more sophisticated (read: time-consuming) _pipeline_ is being used to
 process data, rerunning the entire pipeline for every tweak is not feasible. 
 
-To facilitate large data-processing pipelines, Reproducible provides a few
-convenience functions in <code>run_reproducible.py</code> so that individual
-portions of the pipeline may be tracked separately for reproducibility control.
-
 A basic pipeline script called <code>run_reproducible_pipeline.py</code> is
 provided for simple pipelines. A simple pipeline is one in which the output of
 step n&gt;1 can depend only on the output(s) of step(s) m&lt;n and on
