@@ -542,7 +542,7 @@ if __name__ == "__main__":
                     reproducible_file, pipeline_file, range_start, range_end,
                     future, previous_run, ignore_missing_output,
                     inference_behaviour)
-        with open(path.join(runner.results_dir, runner.output_dir, "invocation.txt")) as f:
+        with open(path.join(runner.results_dir, runner.output_dir, "invocation.txt"), 'w') as f:
             fprint = mkfprint(f)
             fprint("args =", args[1:])
     except PipelineRunnerInitializationError as e:
