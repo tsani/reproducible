@@ -21,7 +21,7 @@ iterations of the output, but suppose we find some past output that we really
 like, but we wish that we could slightly tweak the parameters that generated
 it. It's very difficult or tedious for us to recover those parameters,
 especially if we just invoke the script on the command line. It's a little bit
-easier if the invokation occurred in a script that is under version control,
+easier if the invocation occurred in a script that is under version control,
 but it's not impossible that we ran the script from a dirty reposity, i.e. one
 in which we had uncommitted changes. Even if we're guaranteed that all our runs
 come from clean repositories, then it is still quite tedious to search through
@@ -41,7 +41,7 @@ experimental output data. This guarantees that it is straightforward to roll
 back to the exact working directory that generated a given set of output.
 
 The user maintains a list of files under _reproducibility control_, and rather
-than run the data processing scripts directly, we instead wrap the invokation
+than run the data processing scripts directly, we instead wrap the invocation
 of the script in a call to <code>run_reproducible.py</code>. This wrapper
 script will verify that the files listed under reproducibility control
 have no uncommitted changes. If there are uncommitted changes, then the user is
