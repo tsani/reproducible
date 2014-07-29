@@ -142,6 +142,23 @@ additional wrapper scripts with the desired command-line arguments built-in,
 Reproducible will simply save the command-line used to invoke it to a file name
 <code>invocation.txt</code> in the same directory as <code>rev.txt</code>.
 
+Rebasing
+--------
+
+Since Reproducible relies on commit hashes, using <code>git rebase</code> to
+rewrite history is unadvisable as it will change the commit hashes. Our advice,
+then, is simply to fork the repository should we wish to rebase.
+
+Of course, if the commits in question did not produce any output, (e.g. a quick
+succession of bugfixes,) then rebasing is preferred; each commit will therefore
+contain a functioning instance of the project. If a commit produced broken
+output, then it might be best to delete that output and combine the commit with
+the subsequent ones, until the code is not broken. 
+
+All these suggestions depend on the workflow, however, and should your team use
+a different one, the only consideration is again that rewriting history can be
+dangerous.
+
 Pipelines
 ---------
 
