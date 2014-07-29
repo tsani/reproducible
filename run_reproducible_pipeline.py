@@ -85,7 +85,6 @@ class PipelineStep:
             rmtree(self.output_dir)
             raise
 
-
 class PipelineRunner:
     def __init__(self, force=False, final=False, output_dir=None,
             results_dir="results", reproducible_list_file=".reproducible",
@@ -131,6 +130,7 @@ class PipelineRunner:
         if not self.force:
             self.parse_reproducible_file() # this will also guarantee that the files exist
             if not self.is_repo_clean():
+                # the commit-enforcing policy:
                 raise PipelineRunnerInitializationError(
                         "fatal: repository is not clean. \nPlease commit changes to any files "
                         + "listed in ``%s''." % self.reproducible_list_file)
@@ -145,8 +145,11 @@ class PipelineRunner:
             raise PipelineRunnerInitializationError("fatal: unable to get the commit hash.")
         self.rev = git_rev_out
 
+    def _is_single_step(self):
+        return self.range_start == self.range_end
+
     def _resolve_id(self, step_name):
-        for (i, step) in enumerate(self.pipeline_steps):
+        for (i, step) in enumerate(self.pipeline_steps, 1):
             if step_name == step.name:
                 return i
         raise ValueError("no such step named ``%s''." % step_name)
@@ -179,13 +182,13 @@ class PipelineRunner:
                 [step.name for step in islice(self.pipeline_steps, self.range_end + 1)])
 
     def _parse_range(self, value):
-        v = -1
-        if isinstance(value, str):
-            try:
-                v = int(value)
-            except ValueError:
-                v = self._resolve_id(value)
-        return v
+        if not isinstance(value, str):
+            return value
+
+        try:
+            return int(value)
+        except ValueError:
+            return self._resolve_id(value)
 
     def determine_range(self):
         """ Perform black magic (read: lots of ifs) to infer the correct behaviour when given
