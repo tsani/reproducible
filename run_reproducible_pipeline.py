@@ -205,7 +205,8 @@ class PipelineRunner:
 
         self.range_start = self._parse_range(self.range_start)
         self.range_end = self._parse_range(self.range_end)
-        assert(isinstance(self.range_start, int) and isinstance(self.range_start, int))
+        # If any of the ranges are None, then parsing will simply do nothing.
+        # None-ness is treated below.
 
         if self.range_end is None:
             self.range_end = len(self.pipeline_steps)
