@@ -101,9 +101,7 @@ The possible options are the following:
   used in scenarios where there are two or more subprojects in the same
   directory, and each should have its own separate list of
   reproducibility-controlled files. This setting will cause .reproducible to be
-  ignore (in fact it can even be absent if -r is used instead.) It is allowed
-  to specify '-' (dash) as the reproducible file list, in which case the files
-  are read from standard input.
+  ignore (in fact it can even be absent if -r is used instead.) 
 * <code>-o | --output</code>: (takes one argument) set the directory where the
   reproducibility information should be stored. If this option is set, then the
   standard behaviour of using the last line of the inner script's standard
