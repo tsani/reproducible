@@ -233,7 +233,7 @@ class PipelineRunner:
             if self.inference_behaviour == "continue": # force continuing
                 if has_previous_run: # if there is a previous run
                     if self.steps_num > prev_run_steps_num: # there are more steps now
-                        self.range_start = self.steps_num # continue from end of previous run
+                        self.range_start = prev_run_steps_num + 1 # continue from end of previous run
                     elif self.steps_num < prev_run_steps_num: # there are less steps now
                         raise PipelineRunnerInitializationError(
                                 "fatal: number of steps decreased since last run.")
@@ -242,7 +242,7 @@ class PipelineRunner:
                         # but since we're forcing continuing, we raise an exception.
                         raise PipelineRunnerInitializationError(
                                 "inconsistency: pipeline set to continue from previous run, "
-                                + "but the number of steps has not changed.")
+                                + "but the number of steps since the last run is the same.")
                 else: # no previous run
                     # if we were doing inference, we would assume to start at step 1
                     # but since we're forcing continuing, we raise an exception:
