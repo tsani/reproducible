@@ -528,7 +528,7 @@ if __name__ == "__main__":
             if inference_behaviour:
                 raise CLIError("Inference behaviour specified multiple times.")
             inference_behaviour = "rebuild"
-        elif check_args("future"):
+        elif check_arg("future"):
             future = True
         elif check_arg("final"):
             final = True
