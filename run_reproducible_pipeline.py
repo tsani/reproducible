@@ -26,6 +26,10 @@ equals_any_c = lambda v, l: equals_any(v)(l)
 flip = lambda f: lambda x, y: f(y, x)
 any_do = compose(any, imap)
 
+def ireversed(seq):
+    for i in xrange(len(seq) - 1, -1, -1):
+        yield seq[i]
+
 class CLIError(Exception):
     pass
 
@@ -128,16 +132,16 @@ class PipelineRunner:
                     "fatal: the output directory for this run already exists.")
 
         if not self.force:
-            self.parse_reproducible_file() # this will also guarantee that the files exist
-            if not self.is_repo_clean():
+            self._parse_reproducible_file() # this will also guarantee that the files exist
+            if not self._is_repo_clean():
                 # the commit-enforcing policy:
                 raise PipelineRunnerInitializationError(
                         "fatal: repository is not clean. \nPlease commit changes to any files "
                         + "listed in ``%s''." % self.reproducible_list_file)
 
-        self.parse_pipeline_file() # also verifies that the scripts exist
+        self._parse_pipeline_file() # also verifies that the scripts exist
 
-        self.determine_range()
+        self._determine_range()
 
         git_rev_proc = sp.Popen(["git", "rev-parse", "HEAD"], stdout=PIPE)
         git_rev_out, git_rev_err = git_rev_proc.communicate()
@@ -145,20 +149,27 @@ class PipelineRunner:
             raise PipelineRunnerInitializationError("fatal: unable to get the commit hash.")
         self.rev = git_rev_out
 
-    def _is_single_step(self):
-        return self.range_start == self.range_end
+    def run(self):
+        """ Run the reproducible pipeline. If this run is a continuation (i.e. not starting at the
+            beginning) then this this """
 
-    def _resolve_id(self, step_name):
-        for (i, step) in enumerate(self.pipeline_steps, 1):
-            if step_name == step.name:
-                return i
-        raise ValueError("no such step named ``%s''." % step_name)
+        os.makedirs(path.join(self.results_dir, self.output_dir))
 
-    def _make_previous_link(self, name):
-        os.symlink(path.join("..", self.previous_run, name),
-                   path.join(self.results_dir, self.output_dir, name))
+        if self.range_start > 0:
+            self._generate_previous_step_links()
 
-    def generate_previous_step_links(self):
+        for step in islice(self.pipeline_steps, self.range_start, self.range_end + 1):
+            step.make_output_directory(self.output_dir)
+            step.run()
+
+        odir = path.join(self.results_dir, self.output_dir)
+        with open(path.join(odir, "rev.txt"), 'w') as f:
+            mkfprint(f)(self.rev)
+        if self.force or self.final:
+            with open(path.join(odir, ".final"), 'w') as f:
+                mkfprint(f)("final")
+
+    def _generate_previous_step_links(self):
         """ For each step N from the previous run where N < self.range_start, generate a symlink
             to that step's output folder in this run's folder.
             """
@@ -170,27 +181,22 @@ class PipelineRunner:
             raise PipelineRunnerInitializationError("fatal: cannot generate symlinks to previous " +
                     "steps in the previous run if the previous run is not determined.")
 
-        map(self._make_previous_link,
-            [step.name for step in islice(self.pipeline_steps, 0, self.range_start)])
+        link_range = lambda start=None, end=None: map(self._make_previous_link,
+            [step.name for step in islice(self.pipeline_steps, start, end)])
+
+        link_range(0, self.range_start)
 
         if self.future:
             if self.range_end + 1 >= len(self.pipeline_steps):
                 raise PipelineRunnerInitializationError("inconsistency: cannot generate symlinks to " +
                         "future steps if the pipeline is to run until the last step.")
 
-            map(self._make_previous_link,
-                [step.name for step in islice(self.pipeline_steps, self.range_end + 1)])
+            link_range(self.range_end + 1)
 
-    def _parse_range(self, value):
-        if not isinstance(value, str):
-            return value
+    def _has_step(self, run_name, step_name):
+        return path.exists(path.join(self.results_dir, self.run_name, self.step_name))
 
-        try:
-            return int(value)
-        except ValueError:
-            return self._resolve_id(value)
-
-    def determine_range(self):
+    def _determine_range(self):
         """ Perform black magic (read: lots of ifs) to infer the correct behaviour when given
             imprecise command lines. When given precise command lines, look for inconsistencies
             to prevent the user from accidentally doing something bad.
@@ -199,7 +205,7 @@ class PipelineRunner:
             This method should always be called during initialization, even if the user is
             supplying a starting point, as it checks for inconsistencies.
             This method also sets self.has_previous_run, self.had_previous_run (not a typo!),
-            and it will call determine_previous_run, if necessary, setting self.previous_run.
+            and it will call _determine_previous_run, if necessary, setting self.previous_run.
             """
         self.steps_num = len(self.pipeline_steps) # number of steps in this run
 
@@ -222,12 +228,15 @@ class PipelineRunner:
             pass
 
         self.had_previous_run = not not self.previous_run # 'had' as in prior to determination
-        # determine_previous_run returns true if a previous run was found
+        # _determine_previous_run returns true if a previous run was found
         # it also assigns what it found to self.previous_run
-        has_previous_run = True if self.previous_run else self.determine_previous_run()
+        has_previous_run = True if self.previous_run else self._determine_previous_run()
         if has_previous_run: # if there's a previous run
             # count the number of steps in that run
-            prev_run_steps_num = self.count_steps_in_run(self.previous_run)
+            prev_run_steps_num = self._count_steps_in_run(self.previous_run)
+            print("Previous run:", self.previous_run)
+        else:
+            print("No previous run given / failed to determine previous run.")
 
         if self.range_start is None: # starting step unspecified
             if self.inference_behaviour == "continue": # force continuing
@@ -314,46 +323,26 @@ class PipelineRunner:
         self.range_end -= 1
         self.range_start -= 1
 
-    def run(self):
-        """ Run the reproducible pipeline. If this run is a continuation (i.e. not starting at the
-            beginning) then this this """
-
-        os.makedirs(path.join(self.results_dir, self.output_dir))
-
-        if self.range_start > 0:
-            self.generate_previous_step_links()
-
-        for step in islice(self.pipeline_steps, self.range_start, self.range_end + 1):
-            step.make_output_directory(self.output_dir)
-            step.run()
-
-        odir = path.join(self.results_dir, self.output_dir)
-        with open(path.join(odir, "rev.txt"), 'w') as f:
-            mkfprint(f)(self.rev)
-        if self.force or self.final:
-            with open(path.join(odir, ".final"), 'w') as f:
-                mkfprint(f)("final")
-
     @staticmethod
-    def rebase_path(base_file, relative_file):
+    def _rebase_path(base_file, relative_file):
         """ Convert a path relative to the given file into a path relative to the CWD. """
         # to do so, we take the dirname of the pipeline file and join it to the script path. The pipeline
         # file is relative to the CWD.
         return path.join(path.dirname(base_file), relative_file)
 
     @staticmethod
-    def is_final(run_dir):
+    def _is_final(run_dir):
         """ Determine whether the run saved to the given directory is final, i.e. if it contains a file
             named ``.final''.
             """
         return ".final" in os.listdir(run_dir)
 
     @staticmethod
-    def is_reproducible(run_dir):
+    def _is_reproducible(run_dir):
         """ Determine whether a given run is reproducible, i.e. check for the existence of a rev.txt. """
         return "rev.txt" in os.listdir(run_dir)
 
-    def count_steps_in_run(self, run_name):
+    def _count_steps_in_run(self, run_name):
         """ Determine how many steps there are in a run by counting the number of folders in that
             directory whose names are step names as listed in self.pipeline_file.
             """
@@ -362,14 +351,15 @@ class PipelineRunner:
         return len(filter(lambda p: path.isdir(p) and (path.basename(p) in stepnames),
                           map(lambda p: path.join(odir, p), os.listdir(odir))))
 
-    def determine_previous_run(self):
+    def _determine_previous_run(self):
         """ Figure out what the previous run is by taking the most recent non-final and reproducible
             run directory's name. If there are no such runs, then False is returned. True is
             returned if self.previous_run was successfully set to the run name of an appropriate
             previous run. """
         # get the list of runs as an iterable, ignoring any files in the results directory that are not
-        # folders, and ignoring any runs that are final.
-        runs = filter(lambda p: path.isdir(p) and not self.is_final(p) and self.is_reproducible(p),
+        # folders, ignoring any runs that are final, and ignoring any runs which themselves are not
+        # reproducible.
+        runs = filter(lambda p: path.isdir(p) and not self._is_final(p) and self._is_reproducible(p),
                 imap(lambda p: path.join(self.results_dir, p), os.listdir(self.results_dir)))
         if len(runs) == 0:
             return False
@@ -378,10 +368,23 @@ class PipelineRunner:
         self.previous_run = path.basename(sorted_runs[-1]) # return the basename, since that is the run name.
         return True
 
-    def parse_pipeline_file(self): # :: ... -> IO () ;)
+    # TODO store all these previous runs that way when we want to query, we don't need to regenerate this list.
+    def _find_previous_run_with(self, step_name):
+        runs = filter(lambda p: path.isdir(p) and not self._is_final(p) and self._is_reproducible(p),
+                imap(lambda p: path.join(self.results_dir, p), os.listdir(self.results_dir)))
+        if len(runs) == 0:
+            return None
+
+        sorted_runs = sorted(runs, key=path.getmtime)
+        for step_path in reversed(sorted_runs):
+            if path.exists(path.join(step_path, step_name)):
+                return path.basename(step_path)
+        return None
+
+    def _parse_pipeline_file(self): # :: ... -> IO () ;)
         """ Parse the pipeline file, whose path is stored in self.pipeline_file, into a list of
             PipelineStep objects stored in self.pipeline_steps. The ``make_output_directory'' method
-            is not called yet, since ``parse_pipeline_file'' has no knowledge of the run name, which
+            is not called yet, since ``_parse_pipeline_file'' has no knowledge of the run name, which
             is required to determine the path to the run folder.
             """
         lineno = 1
@@ -392,7 +395,7 @@ class PipelineRunner:
                     words = line[:-1].split() # drop the last char since it's \n
                     script_rel_path = words[0]
                     step_name       = words[1]
-                    script_abs_path = self.rebase_path(self.pipeline_file, script_rel_path)
+                    script_abs_path = self._rebase_path(self.pipeline_file, script_rel_path)
                     if not path.exists(script_abs_path):
                         raise PipelineStepInitializationError(
                                 "Cannot find pipeline component script ``%s''" % script_abs_path)
@@ -407,7 +410,7 @@ class PipelineRunner:
             raise PipelineRunnerInitializationError("IO error.")
         # allow other exceptions to percolate up
 
-    def parse_reproducible_file(self): # :: ... -> IO ()
+    def _parse_reproducible_file(self): # :: ... -> IO ()
         """ Parse self.reproducible_list_file, rebase all the paths to be relative to the CWD, and check
             that all the files exist. If any files are missing, an exception is thrown. The resulting
             list of paths is stored in self.reproducible_files.
@@ -418,7 +421,7 @@ class PipelineRunner:
             with open(self.reproducible_list_file) as f:
                 for line_ in f:
                     line = line_[:-1] # drop the last char since it's \n
-                    p = self.rebase_path(self.reproducible_list_file, line)
+                    p = self._rebase_path(self.reproducible_list_file, line)
                     if not path.exists(p):
                         raise PipelineRunnerInitializationError("A file under reproducibility control" +
                                 " at %s:%i ``%s'' does not exist" %
@@ -429,7 +432,7 @@ class PipelineRunner:
             errprint("IO error:", e)
             raise PipelineRunnerInitializationError("IO error.")
 
-    def is_repo_clean(self):
+    def _is_repo_clean(self):
         """ Check the status of the repository. If any of the files listed in self.reproducible_files
             have uncommitted local changes, then the return value is False, otherwise it is True. If
             self.reproducible_files does not exist or the git command fails, then an exception is raised.
@@ -444,6 +447,28 @@ class PipelineRunner:
             raise PipelineRunnerInitializationError("fatal: unable to stat the git repository.")
 
         return not git_status_out # if empty, then good.
+
+    def _is_single_step(self):
+        return self.range_start == self.range_end
+
+    def _resolve_id(self, step_name):
+        for (i, step) in enumerate(self.pipeline_steps, 1):
+            if step_name == step.name:
+                return i
+        raise ValueError("no such step named ``%s''." % step_name)
+
+    def _make_previous_link(self, name):
+        os.symlink(path.join("..", self.previous_run, name),
+                   path.join(self.results_dir, self.output_dir, name))
+
+    def _parse_range(self, value):
+        if not isinstance(value, str):
+            return value
+
+        try:
+            return int(value)
+        except ValueError:
+            return self._resolve_id(value)
 
 def run_reproducible_pipeline(*args, **kwargs):
     """ Construct a PipelineRunner, forwarding all arguments and keyword arguments to its constructor,
