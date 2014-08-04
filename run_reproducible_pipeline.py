@@ -75,14 +75,8 @@ class PipelineStep:
         # output_dir is the path (relative to CWD !) where this step should store its output.
         # it is passed as the first argument to this step's inner script.
         try:
-            inner_script_proc = sp.Popen([self.script_path, self.output_dir], stdout=PIPE)
-            while True:
-                line = inner_script_proc.stdout.readline()
-                if not line:
-                    break
-                sys.stdout.write(line) # echo everything the internal script outputs.
-            inner_script_proc.wait()
-            if inner_script_proc.returncode != 0:
+            returncode = sp.call([self.script_path, self.output_dir])
+            if returncode != 0:
                 raise PipelineStepRuntimeError("The inner script failed.")
         except:
             self.exc_info = sys.exc_info()
