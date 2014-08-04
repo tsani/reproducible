@@ -475,7 +475,7 @@ def run_reproducible_pipeline(*args, **kwargs):
 switches = {"output_dir":("-o", "--output"), "results_dir":("-R", "--results"),
         "reproducible_file":("-r",), "pipeline_file":("-p",), "range_start":("--from",),
         "range_end":("--to",), "singleton_range":("--only",), "previous_run":("--with",),
-        "ignore_missing_output":("--ignore_missing_output",), "final":("--final",),
+        "ignore_missing_output":("--ignore-missing-output",), "final":("--final",),
         "force":("--force",), "future":("--link-future",)}
 
 if __name__ == "__main__":
