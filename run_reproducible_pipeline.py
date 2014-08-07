@@ -530,12 +530,16 @@ if __name__ == "__main__":
             if saw("singleton_range"):
                 raise CLIError("``--only'' can only be used when ``--from'' and ``--to'' are not.")
             range_end = nextarg()
+            i+= 1
         elif check_arg("singleton_range"):
             if any_do(saw, ["range_start", "range_end"]):
                 raise CLIError("``--only'' can only be used when ``--from'' and ``--to'' are not.")
             r = nextarg()
             range_start = r
             range_end   = r
+            i += 1
+        elif check_arg("previous_run"):
+            previous_run = nextarg()
             i += 1
         elif check_arg("ignore_missing_output"):
             ignore_missing_output = True
