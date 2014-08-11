@@ -18,6 +18,8 @@ from itertools import islice, imap, ifilter
 
 from shutil import rmtree
 
+GIT_PATH = "/usr/bin/git"
+
 compose = lambda f, g: lambda *args, **kwargs: f(g(*args, **kwargs))
 mkfprint = lambda f: lambda *args, **kwargs: print(*args, file=f, **kwargs)
 errprint = mkfprint(sys.stderr)
@@ -137,7 +139,7 @@ class PipelineRunner:
 
         self._determine_range()
 
-        git_rev_proc = sp.Popen(["git", "rev-parse", "HEAD"], stdout=PIPE)
+        git_rev_proc = sp.Popen([GIT_PATH, "rev-parse", "HEAD"], stdout=PIPE)
         git_rev_out, git_rev_err = git_rev_proc.communicate()
         if git_rev_proc.returncode != 0:
             raise PipelineRunnerInitializationError("fatal: unable to get the commit hash.")
@@ -434,7 +436,7 @@ class PipelineRunner:
         if not self.reproducible_files:
             raise PipelineRunnerInitializationError("fatal: no files listed for reproducibility control.")
 
-        git_status_proc = sp.Popen(["git", "status", "--short"] + self.reproducible_files, stdout=PIPE)
+        git_status_proc = sp.Popen([GIT_PATH, "status", "--short"] + self.reproducible_files, stdout=PIPE)
         # wait until the process ends and collect its output
         git_status_out, git_status_err = git_status_proc.communicate()
         if git_status_proc.returncode != 0:
