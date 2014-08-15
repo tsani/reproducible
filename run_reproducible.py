@@ -96,7 +96,17 @@ def run_reproducible(script_command, force=False, rev_folder=None,
 
 
     # run the inner script, and we'll collect its stdout.
-    script_proc = subprocess.Popen(script_command, stdout=PIPE)
+    try:
+        script_proc = subprocess.Popen(script_command, stdout=PIPE)
+    except Exception as e:
+        map(errprint, ["fatal: the inner script failed to start",
+                       "Possible causes include but are not limited to:",
+                       "\t* the script not being executable.",
+                       "\t* running a script not in $PATH without the ``./'' prefix."
+                       "",
+                       "Inner exception message: %s" % str(e)])
+        return 1
+
     while True:
         line = script_proc.stdout.readline()
         if not line:
