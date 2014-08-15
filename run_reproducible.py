@@ -9,7 +9,7 @@ from sys import argv as args
 from sys import exit
 import sys
 from os import path
-from itertools import islice, imap
+from itertools import islice, imap, repeat
 
 ### Helper functions
 # Make a function that prints to to the given file.
@@ -22,7 +22,7 @@ equals_any = lambda v, l: any(imap(lambda x: v == x, l))
 default_reproducible_path = ".reproducible"
 
 def run_reproducible(script_command, force=False, rev_folder=None,
-        reproducible_path=default_reproducible_path):
+        reproducible_path=default_reproducible_path, history_back_n=5):
     if reproducible_path == None:
         reproducible_path = default_reproducible_path
 
@@ -70,7 +70,8 @@ def run_reproducible(script_command, force=False, rev_folder=None,
     git_rev_parse.wait()
 
     if git_rev_parse.returncode != 0:
-        map(errprint, ["fatal: could not get the hash of the current commit.", "Is the current working directory in a git repository?"])
+        map(errprint, ["fatal: could not get the hash of the current commit.",
+                       "Is the current working directory in a git repository?"])
         return 1
 
     clean = len(status_out) == 0 # if there's no output, then we're all good! The files are clean.
@@ -83,6 +84,16 @@ def run_reproducible(script_command, force=False, rev_folder=None,
             return 1
         else:
             map(errprint, ["warning: the repository is not clean."])
+
+    git_log_proc = subprocess.Popen(["git", "log", "--oneline", "--graph", "HEAD%s..HEAD" % "".join(repeat('^', history_back_n))], stdout=subprocess.PIPE)
+    log_out, log_err = git_log_proc.communicate()
+    git_log_proc.wait()
+
+    if git_log_proc.returncode != 0:
+        map(errprint ["fatal: could not get history of the repository.",
+                      "Is this a valid git repository?"])
+        return 1
+
 
     # run the inner script, and we'll collect its stdout.
     script_proc = subprocess.Popen(script_command, stdout=PIPE)
@@ -117,20 +128,33 @@ def run_reproducible(script_command, force=False, rev_folder=None,
     # reproducibility control information.
     # *unless*, the user specified the directory on the command-line, in which case rev_folder is not None.
 
-    # fetch the hash
     try:
-        with open(rev_folder + "/rev.txt", 'w') as f:
+        with open(path.join(rev_folder, "rev.txt"), 'w') as f:
             fprint = mkfprint(f)
             fprint(rev_out, end='') # out already has a \n at the end.
             if not clean:
                 print("NOT CLEAN", file=f)
-        with open(rev_folder + "/invocation.txt", 'w') as f:
+    except IOError as e:
+        map(errprint, ["fatal: unable to write the commit hash.",
+                       "Inner exception: %s" % str(e)])
+        return 1
+
+    try:
+        with open(path.join(rev_folder, "invocation.txt"), 'w') as f:
             fprint = mkfprint(f)
             fprint(repr(script_command))
     except IOError as e:
-        map(errprint, ["fatal: unable to write the commit hash.",
-                       ("Inner exception:", e)])
-        return 1
+        map(errprint, ["warning: unable to write invocation.",
+                       "Inner exception: %s" % str(e)])
+
+    try:
+        with open(path.join(rev_folder, "whatsnew.txt"), 'w') as f:
+            fprint = mkfprint(f)
+            fprint(log_out)
+    except IOError as e:
+        map(errprint, ["warning: unable to write history.",
+                       "Inner exception: %s" % str(e)])
+
     return 0
 
 if __name__ == "__main__":
@@ -138,6 +162,7 @@ if __name__ == "__main__":
     rev_folder          = None
     reproducible_path   = None
     force               = False
+    history_back_n      = 5
 
     try: # parse the command line arguments
         i = 1
@@ -155,6 +180,9 @@ if __name__ == "__main__":
                 elif any_of(["-r", "--reproducible"]):
                     reproducible_path = next_arg()
                     i += 1
+                elif any_of(["-n", "--history"]):
+                    history_back_n = int(next_arg())
+                    i += 1
                 else: # if we fail to parse the args, then the script name has appeared on the command line
                     script_args.append(arg) # so we set the script name, which causes all subsequent args to be stored and passed to the inner script
             else: # if the script is defined, then all subsequent args are passed as args to the script
@@ -164,4 +192,4 @@ if __name__ == "__main__":
         errprint("fatal: invalid command line.")
         exit(1)
 
-    exit(run_reproducible(script_args, force, rev_folder, reproducible_path))
+    exit(run_reproducible(script_args, force, rev_folder, reproducible_path, history_back_n))
